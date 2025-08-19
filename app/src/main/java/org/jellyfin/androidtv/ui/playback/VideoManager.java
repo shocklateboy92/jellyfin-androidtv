@@ -116,6 +116,7 @@ public class VideoManager {
                 null
         );
         mExoPlayerView.getSubtitleView().setFractionalTextSize(0.0533f * userPreferences.get(UserPreferences.Companion.getSubtitlesTextSize()));
+        mExoPlayerView.getSubtitleView().setBottomPaddingFraction(userPreferences.get(UserPreferences.Companion.getSubtitlesOffsetPosition()));
         mExoPlayerView.getSubtitleView().setStyle(subtitleStyle);
         // Initialize dual subtitle manager
         dualSubtitleManager = new DualSubtitleManager(activity);

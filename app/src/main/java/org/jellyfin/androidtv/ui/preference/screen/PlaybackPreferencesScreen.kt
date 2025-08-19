@@ -161,6 +161,34 @@ class PlaybackPreferencesScreen : OptionsFragment() {
 					default { (UserPreferences.subtitlesTextSize.defaultValue * 100f).roundToInt() }
 				}
 			}
+
+			@Suppress("MagicNumber")
+			seekbar {
+				setTitle(R.string.pref_subtitles_position)
+				min = 0 // 0.0f
+				max = 80 // 0.8f
+				increment = 1 // 0.01f
+				valueFormatter = object : DurationSeekBarPreference.ValueFormatter() {
+					override fun display(value: Int): String = "$value%"
+				}
+
+				bind {
+					get { (userPreferences[UserPreferences.subtitlesOffsetPosition] * 100f).roundToInt() }
+					set { value -> userPreferences[UserPreferences.subtitlesOffsetPosition] = value / 100f }
+					default { (UserPreferences.subtitlesOffsetPosition.defaultValue * 100f).roundToInt() }
+				}
+			}
+
+			checkbox {
+				setTitle(R.string.pref_subtitles_bold)
+				bind {
+					val boldWeight = 700
+					val normalWeight = UserPreferences.subtitlesTextWeight.defaultValue
+					get { userPreferences[UserPreferences.subtitlesTextWeight] == boldWeight }
+					set { checked -> userPreferences[UserPreferences.subtitlesTextWeight] = if (checked) boldWeight else normalWeight }
+					default { false }
+				}
+			}
 		}
 
 		category {
