@@ -15,17 +15,20 @@ class BackendService {
 
 	private var listeners = mutableListOf<PlayerBackendEventListener>()
 	private var _surfaceView: PlayerSurfaceView? = null
-	private var _subtitleView: PlayerSubtitleView? = null
+	private var _primarySubtitleView: PlayerSubtitleView? = null
+	private var _secondarySubtitleView: PlayerSubtitleView? = null
 
 	fun switchBackend(backend: PlayerBackend) {
 		_backend?.stop()
 		_backend?.setListener(null)
 		_backend?.setSurfaceView(null)
-		_backend?.setSubtitleView(null)
+		_backend?.setPrimarySubtitleView(null)
+		_backend?.setSecondarySubtitleView(null)
 
 		_backend = backend.apply {
 			_surfaceView?.let(::setSurfaceView)
-			_subtitleView?.let(::setSubtitleView)
+			_primarySubtitleView?.let(::setPrimarySubtitleView)
+			_secondarySubtitleView?.let(::setSecondarySubtitleView)
 			setListener(BackendEventListener())
 		}
 	}
@@ -50,24 +53,50 @@ class BackendService {
 		}
 	}
 
-	fun attachSubtitleView(subtitleView: PlayerSubtitleView) {
-		// Remove existing surface view
-		if (_subtitleView != null) {
-			_backend?.setSubtitleView(null)
+	fun attachPrimarySubtitleView(subtitleView: PlayerSubtitleView) {
+		// Remove existing primary subtitle view
+		if (_primarySubtitleView != null) {
+			_backend?.setPrimarySubtitleView(null)
 		}
 
-		// Apply new surface view
-		_subtitleView = subtitleView.apply {
-			_backend?.setSubtitleView(subtitleView)
+		// Apply new primary subtitle view
+		_primarySubtitleView = subtitleView.apply {
+			_backend?.setPrimarySubtitleView(subtitleView)
 
 			// Automatically detach
 			doOnDetach {
-				if (subtitleView == _subtitleView) {
-					_subtitleView = null
-					_backend?.setSubtitleView(null)
+				if (subtitleView == _primarySubtitleView) {
+					_primarySubtitleView = null
+					_backend?.setPrimarySubtitleView(null)
 				}
 			}
 		}
+	}
+
+	fun attachSecondarySubtitleView(subtitleView: PlayerSubtitleView) {
+		// Remove existing secondary subtitle view
+		if (_secondarySubtitleView != null) {
+			_backend?.setSecondarySubtitleView(null)
+		}
+
+		// Apply new secondary subtitle view
+		_secondarySubtitleView = subtitleView.apply {
+			_backend?.setSecondarySubtitleView(subtitleView)
+
+			// Automatically detach
+			doOnDetach {
+				if (subtitleView == _secondarySubtitleView) {
+					_secondarySubtitleView = null
+					_backend?.setSecondarySubtitleView(null)
+				}
+			}
+		}
+	}
+
+	// Keep legacy method for backward compatibility
+	@Deprecated("Use attachPrimarySubtitleView instead", ReplaceWith("attachPrimarySubtitleView(subtitleView)"))
+	fun attachSubtitleView(subtitleView: PlayerSubtitleView) {
+		attachPrimarySubtitleView(subtitleView)
 	}
 
 	fun addListener(listener: PlayerBackendEventListener) {

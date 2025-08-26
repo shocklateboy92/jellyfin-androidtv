@@ -15,6 +15,7 @@ import org.jellyfin.androidtv.data.service.BackgroundService
 import org.jellyfin.androidtv.ui.player.base.PlayerSubtitles
 import org.jellyfin.androidtv.ui.player.base.PlayerSurface
 import org.jellyfin.playback.core.PlaybackManager
+import org.jellyfin.playback.core.ui.SubtitlePosition
 import org.koin.compose.koinInject
 
 private const val DefaultVideoAspectRatio = 16f / 9f
@@ -49,6 +50,16 @@ fun VideoPlayerScreen() {
 
 		PlayerSubtitles(
 			playbackManager = playbackManager,
+			position = SubtitlePosition.PRIMARY,
+			modifier = Modifier
+				.aspectRatio(aspectRatio, videoSize.height < videoSize.width)
+				.fillMaxSize()
+				.align(Alignment.Center)
+		)
+
+		PlayerSubtitles(
+			playbackManager = playbackManager,
+			position = SubtitlePosition.SECONDARY,
 			modifier = Modifier
 				.aspectRatio(aspectRatio, videoSize.height < videoSize.width)
 				.fillMaxSize()

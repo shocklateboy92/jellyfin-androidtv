@@ -46,6 +46,13 @@ import timber.log.Timber
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 
+data class SubtitleTrackInfo(
+	val id: String,
+	val displayName: String,
+	val language: String? = null,
+	val isForced: Boolean = false,
+)
+
 @OptIn(UnstableApi::class)
 class ExoPlayerBackend(
 	private val context: Context,
@@ -57,8 +64,12 @@ class ExoPlayerBackend(
 	}
 
 	private var currentStream: PlayableMediaStream? = null
-	private var subtitleView: SubtitleView? = null
+	private var primarySubtitleView: SubtitleView? = null
+	private var secondarySubtitleView: SubtitleView? = null
 	private var audioPipeline = ExoPlayerAudioPipeline()
+	
+	private var selectedPrimaryTrackId: String? = null
+	private var selectedSecondaryTrackId: String? = null
 
 	private val assHandler by lazy {
 		AssHandler(AssRenderType.OVERLAY)
@@ -154,7 +165,26 @@ class ExoPlayerBackend(
 		}
 
 		override fun onCues(cueGroup: CueGroup) {
-			subtitleView?.setCues(cueGroup.cues)
+			// Route cues based on track selection
+			if (selectedPrimaryTrackId == null && selectedSecondaryTrackId == null) {
+				// Default behavior: show all cues in primary view
+				primarySubtitleView?.setCues(cueGroup.cues)
+				secondarySubtitleView?.setCues(emptyList())
+			} else {
+				// Filter cues based on selection
+				val primaryCues = if (selectedPrimaryTrackId != null) {
+					// TODO: Filter cues by track ID when ExoPlayer provides track info in cues
+					cueGroup.cues
+				} else emptyList()
+				
+				val secondaryCues = if (selectedSecondaryTrackId != null && selectedSecondaryTrackId != selectedPrimaryTrackId) {
+					// TODO: Filter cues by track ID when ExoPlayer provides track info in cues  
+					cueGroup.cues
+				} else emptyList()
+				
+				primarySubtitleView?.setCues(primaryCues)
+				secondarySubtitleView?.setCues(secondaryCues)
+			}
 		}
 
 		override fun onPlaybackStateChanged(playbackState: Int) {
@@ -185,20 +215,37 @@ class ExoPlayerBackend(
 		exoPlayer.setVideoSurfaceView(surfaceView?.surface)
 	}
 
-	override fun setSubtitleView(surfaceView: PlayerSubtitleView?) {
-		if (surfaceView != null) {
-			if (subtitleView == null) {
-				subtitleView = SubtitleView(surfaceView.context).apply {
+	override fun setPrimarySubtitleView(subtitleView: PlayerSubtitleView?) {
+		if (subtitleView != null) {
+			if (primarySubtitleView == null) {
+				primarySubtitleView = SubtitleView(subtitleView.context).apply {
 					if (exoPlayerOptions.enableLibass) {
-						addView(AssSubtitleView(surfaceView.context, assHandler))
+						addView(AssSubtitleView(subtitleView.context, assHandler))
 					}
 				}
 			}
 
-			surfaceView.addView(subtitleView)
+			subtitleView.addView(primarySubtitleView)
 		} else {
-			(subtitleView?.parent as? ViewGroup)?.removeView(subtitleView)
-			subtitleView = null
+			(primarySubtitleView?.parent as? ViewGroup)?.removeView(primarySubtitleView)
+			primarySubtitleView = null
+		}
+	}
+
+	override fun setSecondarySubtitleView(subtitleView: PlayerSubtitleView?) {
+		if (subtitleView != null) {
+			if (secondarySubtitleView == null) {
+				secondarySubtitleView = SubtitleView(subtitleView.context).apply {
+					if (exoPlayerOptions.enableLibass) {
+						addView(AssSubtitleView(subtitleView.context, assHandler))
+					}
+				}
+			}
+
+			subtitleView.addView(secondarySubtitleView)
+		} else {
+			(secondarySubtitleView?.parent as? ViewGroup)?.removeView(secondarySubtitleView)
+			secondarySubtitleView = null
 		}
 	}
 
@@ -275,4 +322,41 @@ class ExoPlayerBackend(
 		buffer = exoPlayer.bufferedPosition.milliseconds,
 		duration = if (exoPlayer.duration == C.TIME_UNSET) Duration.ZERO else exoPlayer.duration.milliseconds,
 	)
+
+	fun setSubtitleTracks(primaryTrackId: String?, secondaryTrackId: String?) {
+		selectedPrimaryTrackId = primaryTrackId
+		selectedSecondaryTrackId = secondaryTrackId
+		Timber.d("Subtitle tracks updated: primary=$primaryTrackId, secondary=$secondaryTrackId")
+	}
+
+	fun getAvailableSubtitleTracks(): List<SubtitleTrackInfo> {
+		val trackSelector = exoPlayer.trackSelector as? DefaultTrackSelector ?: return emptyList()
+		val mappedTrackInfo = trackSelector.currentMappedTrackInfo ?: return emptyList()
+		
+		val tracks = mutableListOf<SubtitleTrackInfo>()
+		
+		for (rendererIndex in 0 until mappedTrackInfo.rendererCount) {
+			if (mappedTrackInfo.getRendererType(rendererIndex) == C.TRACK_TYPE_TEXT) {
+				val trackGroups = mappedTrackInfo.getTrackGroups(rendererIndex)
+				
+				for (groupIndex in 0 until trackGroups.length) {
+					val trackGroup = trackGroups[groupIndex]
+					
+					for (trackIndex in 0 until trackGroup.length) {
+						val format = trackGroup.getFormat(trackIndex)
+						tracks.add(
+							SubtitleTrackInfo(
+								id = "${rendererIndex}-${groupIndex}-${trackIndex}",
+								displayName = format.label ?: format.language ?: "Track ${tracks.size + 1}",
+								language = format.language,
+								isForced = (format.selectionFlags and C.SELECTION_FLAG_FORCED) != 0
+							)
+						)
+					}
+				}
+			}
+		}
+		
+		return tracks
+	}
 }

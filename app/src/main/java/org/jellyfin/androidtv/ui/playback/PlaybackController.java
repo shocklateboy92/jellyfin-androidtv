@@ -213,6 +213,10 @@ public class PlaybackController implements PlaybackControllerNotifiable {
         return (mCurrentOptions != null && mCurrentOptions.getSubtitleStreamIndex() != null) ? mCurrentOptions.getSubtitleStreamIndex() : -1;
     }
 
+    public int getSecondarySubtitleStreamIndex() {
+        return (mCurrentOptions != null && mCurrentOptions.getSecondarySubtitleStreamIndex() != null) ? mCurrentOptions.getSecondarySubtitleStreamIndex() : -1;
+    }
+
     public boolean isTranscoding() {
         // use or here so that true is the default since
         // this method is used to exclude features that may break unless we are sure playback is direct

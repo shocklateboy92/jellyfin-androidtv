@@ -138,6 +138,9 @@ fun PlaybackController.setSubtitleIndex(index: Int, force: Boolean = false) {
 						.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
 						.build()
 				}
+				
+				// Sync dual subtitle routing with new backend
+				syncDualSubtitleRouting()
 			}
 
 			SubtitleDeliveryMethod.DROP, null -> {
@@ -201,4 +204,64 @@ private fun PlaybackController.addAskToSkipAction(mediaSegment: MediaSegmentDto)
 		.setPosition(mediaSegment.start.inWholeMilliseconds.coerceAtLeast(1))
 		.setDeleteAfterDelivery(false)
 		.send()
+}
+
+val PlaybackController.secondarySubtitleStreamIndex: Int?
+	get() = mCurrentOptions.secondarySubtitleStreamIndex ?: -1
+
+@OptIn(UnstableApi::class)
+@JvmOverloads
+fun PlaybackController.setDualSubtitleIndex(primary: Int? = null, secondary: Int? = null) {
+	if (primary != null) {
+		setSubtitleIndex(primary, false)
+	}
+	if (secondary != null) {
+		setSecondarySubtitleIndex(secondary, false)
+	}
+}
+
+@OptIn(UnstableApi::class)
+@JvmOverloads
+fun PlaybackController.setSecondarySubtitleIndex(index: Int, force: Boolean = false) {
+	Timber.i("Switching secondary subtitles from index ${mCurrentOptions.secondarySubtitleStreamIndex} to $index")
+
+	// Already using this subtitle index
+	if (mCurrentOptions.secondarySubtitleStreamIndex == index && !force) return
+
+	// Update the options
+	mCurrentOptions.secondarySubtitleStreamIndex = index
+
+	// Apply to ExoPlayer backend - connect legacy system to new backend
+	try {
+		val playbackManager = fragment.activity?.let { activity ->
+			// Try to get the playback manager from DI
+			org.koin.java.KoinJavaComponent.getKoin().getOrNull<org.jellyfin.playback.core.PlaybackManager>()
+		}
+		
+		val backend = playbackManager?.backend as? org.jellyfin.playback.media3.exoplayer.ExoPlayerBackend
+		backend?.setSubtitleTracks(
+			primaryTrackId = if (mCurrentOptions.subtitleStreamIndex == -1) null else mCurrentOptions.subtitleStreamIndex?.toString(),
+			secondaryTrackId = if (index == -1) null else index.toString()
+		)
+		Timber.i("Applied dual subtitle routing to ExoPlayerBackend: primary=${mCurrentOptions.subtitleStreamIndex}, secondary=$index")
+	} catch (e: Exception) {
+		Timber.w(e, "Failed to apply dual subtitle routing to backend - running in legacy mode")
+	}
+}
+
+private fun PlaybackController.syncDualSubtitleRouting() {
+	try {
+		val playbackManager = fragment.activity?.let { activity ->
+			org.koin.java.KoinJavaComponent.getKoin().getOrNull<org.jellyfin.playback.core.PlaybackManager>()
+		}
+		
+		val backend = playbackManager?.backend as? org.jellyfin.playback.media3.exoplayer.ExoPlayerBackend
+		backend?.setSubtitleTracks(
+			primaryTrackId = if (mCurrentOptions.subtitleStreamIndex == -1) null else mCurrentOptions.subtitleStreamIndex?.toString(),
+			secondaryTrackId = if (mCurrentOptions.secondarySubtitleStreamIndex == -1) null else mCurrentOptions.secondarySubtitleStreamIndex?.toString()
+		)
+		Timber.d("Synced dual subtitle routing: primary=${mCurrentOptions.subtitleStreamIndex}, secondary=${mCurrentOptions.secondarySubtitleStreamIndex}")
+	} catch (e: Exception) {
+		Timber.d(e, "Backend sync not available - running in legacy mode")
+	}
 }

@@ -18,7 +18,12 @@ interface PlayerBackend {
 
 	// UI
 	fun setSurfaceView(surfaceView: PlayerSurfaceView?)
-	fun setSubtitleView(surfaceView: PlayerSubtitleView?)
+	fun setPrimarySubtitleView(subtitleView: PlayerSubtitleView?)
+	fun setSecondarySubtitleView(subtitleView: PlayerSubtitleView?)
+	
+	// Legacy support - delegate to primary subtitle view
+	@Deprecated("Use setPrimarySubtitleView instead", ReplaceWith("setPrimarySubtitleView(surfaceView)"))
+	fun setSubtitleView(surfaceView: PlayerSubtitleView?) = setPrimarySubtitleView(surfaceView)
 
 	// Data retrieval
 

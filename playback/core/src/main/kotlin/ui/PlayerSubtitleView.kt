@@ -14,6 +14,7 @@ class PlayerSubtitleView @JvmOverloads constructor(
 	attrs: AttributeSet? = null,
 	defStyleAttr: Int = 0,
 	defStyleRes: Int = 0,
+	val position: SubtitlePosition = SubtitlePosition.PRIMARY,
 ) : FrameLayout(context, attrs, defStyleAttr, defStyleRes) {
 	lateinit var playbackManager: PlaybackManager
 
@@ -21,7 +22,10 @@ class PlayerSubtitleView @JvmOverloads constructor(
 		super.onAttachedToWindow()
 
 		if (!isInEditMode) {
-			playbackManager.backendService.attachSubtitleView(this)
+			when (position) {
+				SubtitlePosition.PRIMARY -> playbackManager.backendService.attachPrimarySubtitleView(this)
+				SubtitlePosition.SECONDARY -> playbackManager.backendService.attachSecondarySubtitleView(this)
+			}
 		}
 	}
 }
