@@ -40,6 +40,7 @@ import org.jellyfin.playback.core.queue.QueueEntry
 import org.jellyfin.playback.core.support.PlaySupportReport
 import org.jellyfin.playback.core.ui.PlayerSubtitleView
 import org.jellyfin.playback.core.ui.PlayerSurfaceView
+import org.jellyfin.playback.core.ui.SubtitlePosition
 import org.jellyfin.playback.media3.exoplayer.support.getPlaySupportReport
 import org.jellyfin.playback.media3.exoplayer.support.toFormats
 import timber.log.Timber
@@ -64,10 +65,9 @@ class ExoPlayerBackend(
 	}
 
 	private var currentStream: PlayableMediaStream? = null
-	private var primarySubtitleView: SubtitleView? = null
-	private var secondarySubtitleView: SubtitleView? = null
+	private val subtitleViews = mutableMapOf<SubtitlePosition, SubtitleView?>()
 	private var audioPipeline = ExoPlayerAudioPipeline()
-	
+
 	private var selectedPrimaryTrackId: String? = null
 	private var selectedSecondaryTrackId: String? = null
 
@@ -166,24 +166,26 @@ class ExoPlayerBackend(
 
 		override fun onCues(cueGroup: CueGroup) {
 			// Route cues based on track selection
+			val primaryView = subtitleViews[SubtitlePosition.PRIMARY]
+			val secondaryView = subtitleViews[SubtitlePosition.SECONDARY]
 			if (selectedPrimaryTrackId == null && selectedSecondaryTrackId == null) {
 				// Default behavior: show all cues in primary view
-				primarySubtitleView?.setCues(cueGroup.cues)
-				secondarySubtitleView?.setCues(emptyList())
+				primaryView?.setCues(cueGroup.cues)
+				secondaryView?.setCues(emptyList())
 			} else {
 				// Filter cues based on selection
 				val primaryCues = if (selectedPrimaryTrackId != null) {
 					// TODO: Filter cues by track ID when ExoPlayer provides track info in cues
 					cueGroup.cues
 				} else emptyList()
-				
+
 				val secondaryCues = if (selectedSecondaryTrackId != null && selectedSecondaryTrackId != selectedPrimaryTrackId) {
-					// TODO: Filter cues by track ID when ExoPlayer provides track info in cues  
+					// TODO: Filter cues by track ID when ExoPlayer provides track info in cues
 					cueGroup.cues
 				} else emptyList()
-				
-				primarySubtitleView?.setCues(primaryCues)
-				secondarySubtitleView?.setCues(secondaryCues)
+
+				primaryView?.setCues(primaryCues)
+				secondaryView?.setCues(secondaryCues)
 			}
 		}
 
@@ -215,37 +217,26 @@ class ExoPlayerBackend(
 		exoPlayer.setVideoSurfaceView(surfaceView?.surface)
 	}
 
-	override fun setPrimarySubtitleView(subtitleView: PlayerSubtitleView?) {
+	override fun setSubtitleView(position: SubtitlePosition, subtitleView: PlayerSubtitleView?) {
+		val existingSubtitleView = subtitleViews[position]
 		if (subtitleView != null) {
-			if (primarySubtitleView == null) {
-				primarySubtitleView = SubtitleView(subtitleView.context).apply {
+			if (existingSubtitleView == null) {
+				val newSubtitleView = SubtitleView(subtitleView.context).apply {
 					if (exoPlayerOptions.enableLibass) {
 						addView(AssSubtitleView(subtitleView.context, assHandler))
 					}
 				}
+				subtitleViews[position] = newSubtitleView
+				subtitleView.addView(newSubtitleView)
+			} else {
+				// If the view is already there and attached to a different PlayerSubtitleView parent,
+				// remove it from the old parent first.
+				(existingSubtitleView.parent as? ViewGroup)?.removeView(existingSubtitleView)
+				subtitleView.addView(existingSubtitleView)
 			}
-
-			subtitleView.addView(primarySubtitleView)
 		} else {
-			(primarySubtitleView?.parent as? ViewGroup)?.removeView(primarySubtitleView)
-			primarySubtitleView = null
-		}
-	}
-
-	override fun setSecondarySubtitleView(subtitleView: PlayerSubtitleView?) {
-		if (subtitleView != null) {
-			if (secondarySubtitleView == null) {
-				secondarySubtitleView = SubtitleView(subtitleView.context).apply {
-					if (exoPlayerOptions.enableLibass) {
-						addView(AssSubtitleView(subtitleView.context, assHandler))
-					}
-				}
-			}
-
-			subtitleView.addView(secondarySubtitleView)
-		} else {
-			(secondarySubtitleView?.parent as? ViewGroup)?.removeView(secondarySubtitleView)
-			secondarySubtitleView = null
+			(existingSubtitleView?.parent as? ViewGroup)?.removeView(existingSubtitleView)
+			subtitleViews[position] = null
 		}
 	}
 
@@ -332,16 +323,16 @@ class ExoPlayerBackend(
 	fun getAvailableSubtitleTracks(): List<SubtitleTrackInfo> {
 		val trackSelector = exoPlayer.trackSelector as? DefaultTrackSelector ?: return emptyList()
 		val mappedTrackInfo = trackSelector.currentMappedTrackInfo ?: return emptyList()
-		
+
 		val tracks = mutableListOf<SubtitleTrackInfo>()
-		
+
 		for (rendererIndex in 0 until mappedTrackInfo.rendererCount) {
 			if (mappedTrackInfo.getRendererType(rendererIndex) == C.TRACK_TYPE_TEXT) {
 				val trackGroups = mappedTrackInfo.getTrackGroups(rendererIndex)
-				
+
 				for (groupIndex in 0 until trackGroups.length) {
 					val trackGroup = trackGroups[groupIndex]
-					
+
 					for (trackIndex in 0 until trackGroup.length) {
 						val format = trackGroup.getFormat(trackIndex)
 						tracks.add(
@@ -356,7 +347,7 @@ class ExoPlayerBackend(
 				}
 			}
 		}
-		
+
 		return tracks
 	}
 }

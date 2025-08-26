@@ -6,6 +6,7 @@ import org.jellyfin.playback.core.queue.QueueEntry
 import org.jellyfin.playback.core.support.PlaySupportReport
 import org.jellyfin.playback.core.ui.PlayerSubtitleView
 import org.jellyfin.playback.core.ui.PlayerSurfaceView
+import org.jellyfin.playback.core.ui.SubtitlePosition
 import kotlin.time.Duration
 
 /**
@@ -18,12 +19,7 @@ interface PlayerBackend {
 
 	// UI
 	fun setSurfaceView(surfaceView: PlayerSurfaceView?)
-	fun setPrimarySubtitleView(subtitleView: PlayerSubtitleView?)
-	fun setSecondarySubtitleView(subtitleView: PlayerSubtitleView?)
-	
-	// Legacy support - delegate to primary subtitle view
-	@Deprecated("Use setPrimarySubtitleView instead", ReplaceWith("setPrimarySubtitleView(surfaceView)"))
-	fun setSubtitleView(surfaceView: PlayerSubtitleView?) = setPrimarySubtitleView(surfaceView)
+	fun setSubtitleView(position: SubtitlePosition, subtitleView: PlayerSubtitleView?)
 
 	// Data retrieval
 

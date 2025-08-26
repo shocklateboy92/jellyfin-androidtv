@@ -5,6 +5,7 @@ import org.jellyfin.playback.core.mediastream.PlayableMediaStream
 import org.jellyfin.playback.core.model.PlayState
 import org.jellyfin.playback.core.ui.PlayerSubtitleView
 import org.jellyfin.playback.core.ui.PlayerSurfaceView
+import org.jellyfin.playback.core.ui.SubtitlePosition
 
 /**
  * Service keeping track of the current playback backend and its related surface view.
@@ -15,20 +16,21 @@ class BackendService {
 
 	private var listeners = mutableListOf<PlayerBackendEventListener>()
 	private var _surfaceView: PlayerSurfaceView? = null
-	private var _primarySubtitleView: PlayerSubtitleView? = null
-	private var _secondarySubtitleView: PlayerSubtitleView? = null
+	private var _subtitleViews = mutableMapOf<SubtitlePosition, PlayerSubtitleView>()
 
 	fun switchBackend(backend: PlayerBackend) {
 		_backend?.stop()
 		_backend?.setListener(null)
 		_backend?.setSurfaceView(null)
-		_backend?.setPrimarySubtitleView(null)
-		_backend?.setSecondarySubtitleView(null)
+		_subtitleViews.keys.forEach { position ->
+			_backend?.setSubtitleView(position, null)
+		}
 
 		_backend = backend.apply {
 			_surfaceView?.let(::setSurfaceView)
-			_primarySubtitleView?.let(::setPrimarySubtitleView)
-			_secondarySubtitleView?.let(::setSecondarySubtitleView)
+			_subtitleViews.forEach { (position, view) ->
+				setSubtitleView(position, view)
+			}
 			setListener(BackendEventListener())
 		}
 	}
@@ -53,50 +55,24 @@ class BackendService {
 		}
 	}
 
-	fun attachPrimarySubtitleView(subtitleView: PlayerSubtitleView) {
-		// Remove existing primary subtitle view
-		if (_primarySubtitleView != null) {
-			_backend?.setPrimarySubtitleView(null)
+	fun attachSubtitleView(subtitleView: PlayerSubtitleView, position: SubtitlePosition = SubtitlePosition.PRIMARY) {
+		// Remove existing subtitle view for the given position
+		_subtitleViews[position]?.let {
+			_backend?.setSubtitleView(position, null)
 		}
 
-		// Apply new primary subtitle view
-		_primarySubtitleView = subtitleView.apply {
-			_backend?.setPrimarySubtitleView(subtitleView)
+		// Apply new subtitle view
+		_subtitleViews[position] = subtitleView.apply {
+			_backend?.setSubtitleView(position, subtitleView)
 
 			// Automatically detach
 			doOnDetach {
-				if (subtitleView == _primarySubtitleView) {
-					_primarySubtitleView = null
-					_backend?.setPrimarySubtitleView(null)
+				if (subtitleView == _subtitleViews[position]) {
+					_subtitleViews.remove(position)
+					_backend?.setSubtitleView(position, null)
 				}
 			}
 		}
-	}
-
-	fun attachSecondarySubtitleView(subtitleView: PlayerSubtitleView) {
-		// Remove existing secondary subtitle view
-		if (_secondarySubtitleView != null) {
-			_backend?.setSecondarySubtitleView(null)
-		}
-
-		// Apply new secondary subtitle view
-		_secondarySubtitleView = subtitleView.apply {
-			_backend?.setSecondarySubtitleView(subtitleView)
-
-			// Automatically detach
-			doOnDetach {
-				if (subtitleView == _secondarySubtitleView) {
-					_secondarySubtitleView = null
-					_backend?.setSecondarySubtitleView(null)
-				}
-			}
-		}
-	}
-
-	// Keep legacy method for backward compatibility
-	@Deprecated("Use attachPrimarySubtitleView instead", ReplaceWith("attachPrimarySubtitleView(subtitleView)"))
-	fun attachSubtitleView(subtitleView: PlayerSubtitleView) {
-		attachPrimarySubtitleView(subtitleView)
 	}
 
 	fun addListener(listener: PlayerBackendEventListener) {
