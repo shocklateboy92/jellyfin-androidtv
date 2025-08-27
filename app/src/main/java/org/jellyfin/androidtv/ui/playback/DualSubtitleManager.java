@@ -109,10 +109,12 @@ public class DualSubtitleManager {
 
         if (secondarySubtitleView == null) {
             secondarySubtitleView = new SubtitleView(context);
-            secondarySubtitleView.setFractionalTextSize(0.0533f * userPreferences.get(UserPreferences.Companion.getSubtitlesTextSize()));
+            float fractionalTextSize = 0.0533f * userPreferences.get(UserPreferences.Companion.getSubtitlesTextSize());
+            secondarySubtitleView.setFractionalTextSize(fractionalTextSize);
             // Position secondary subtitles above primary ones
-            secondarySubtitleView.setBottomPaddingFraction(userPreferences.get(UserPreferences.Companion.getSubtitlesOffsetPosition()) + 0.15f);
+            secondarySubtitleView.setBottomPaddingFraction(1.0f - userPreferences.get(UserPreferences.Companion.getSubtitlesOffsetPosition()) - fractionalTextSize);
             secondarySubtitleView.setStyle(style);
+            secondarySubtitleView.setApplyEmbeddedStyles(false);
         }
 
         // Remove from previous parent if attached
