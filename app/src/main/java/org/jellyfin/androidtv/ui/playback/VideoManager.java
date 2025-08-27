@@ -28,6 +28,7 @@ import androidx.media3.common.TrackGroup;
 import androidx.media3.common.TrackSelectionOverride;
 import androidx.media3.common.TrackSelectionParameters;
 import androidx.media3.common.Tracks;
+import androidx.media3.common.text.CueGroup;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.datasource.DefaultDataSource;
 import androidx.media3.datasource.HttpDataSource;
@@ -72,6 +73,9 @@ public class VideoManager {
     public ExoPlayer mExoPlayer;
     private PlayerView mExoPlayerView;
     private Handler mHandler = new Handler();
+
+    // Dual subtitle support
+    private DualSubtitleManager dualSubtitleManager;
 
     private long mMetaDuration = -1;
     private long lastExoPlayerPosition = -1;
@@ -118,6 +122,9 @@ public class VideoManager {
         mExoPlayerView.getSubtitleView().setFractionalTextSize(0.0533f * userPreferences.get(UserPreferences.Companion.getSubtitlesTextSize()));
         mExoPlayerView.getSubtitleView().setBottomPaddingFraction(userPreferences.get(UserPreferences.Companion.getSubtitlesOffsetPosition()));
         mExoPlayerView.getSubtitleView().setStyle(subtitleStyle);
+
+        // Initialize dual subtitle manager
+        dualSubtitleManager = new DualSubtitleManager(activity);
 
         mExoPlayer.addListener(new Player.Listener() {
             @Override
@@ -169,6 +176,13 @@ public class VideoManager {
             @Override
             public void onTimelineChanged(@NonNull Timeline timeline, int reason) {
                 Timber.d("Caught player timeline change - reason: %s", reason == Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED ? "PLAYLIST_CHANGED" : "SOURCE_UPDATE");
+            }
+
+            @Override
+            public void onCues(CueGroup cueGroup) {
+                if (dualSubtitleManager != null) {
+                    dualSubtitleManager.updateSubtitles(getCurrentPosition());
+                }
             }
 
             @Override
@@ -233,6 +247,10 @@ public class VideoManager {
         return mExoPlayer != null;
     }
 
+    public DualSubtitleManager getDualSubtitleManager() {
+        return dualSubtitleManager;
+    }
+
     public @NonNull ZoomMode getZoomMode() {
         return mZoomMode;
     }
@@ -295,6 +313,24 @@ public class VideoManager {
         mExoPlayer.setPlayWhenReady(true);
         normalWidth = mExoPlayerView.getLayoutParams().width;
         normalHeight = mExoPlayerView.getLayoutParams().height;
+
+        // Attach secondary subtitle view when playback starts
+        if (dualSubtitleManager != null) {
+            FrameLayout playerContainer = (FrameLayout) mExoPlayerView.getParent();
+            if (playerContainer != null) {
+                int strokeColor = userPreferences.get(UserPreferences.Companion.getSubtitleTextStrokeColor()).intValue();
+                int textWeight = userPreferences.get(UserPreferences.Companion.getSubtitlesTextWeight());
+                CaptionStyleCompat subtitleStyle = new CaptionStyleCompat(
+                        userPreferences.get(UserPreferences.Companion.getSubtitlesTextColor()).intValue(),
+                        userPreferences.get(UserPreferences.Companion.getSubtitlesBackgroundColor()).intValue(),
+                        Color.TRANSPARENT,
+                        Color.alpha(strokeColor) == 0 ? CaptionStyleCompat.EDGE_TYPE_NONE : CaptionStyleCompat.EDGE_TYPE_OUTLINE,
+                        strokeColor,
+                        TypefaceCompat.create(mActivity, Typeface.DEFAULT, textWeight, false)
+                );
+                dualSubtitleManager.attachSecondarySubtitleView(playerContainer, subtitleStyle);
+            }
+        }
     }
 
     public void play() {
@@ -378,6 +414,11 @@ public class VideoManager {
 
             mExoPlayer.setMediaItem(mediaItem);
             mExoPlayer.prepare();
+
+            // Initialize dual subtitles with stream information
+            if (dualSubtitleManager != null) {
+                dualSubtitleManager.initialize(api, streamInfo);
+            }
         } catch (IllegalStateException e) {
             Timber.e(e, "Unable to set video path.  Probably backing out.");
         }
@@ -560,6 +601,13 @@ public class VideoManager {
     public void destroy() {
         mPlaybackControllerNotifiable = null;
         stopPlayback();
+
+        // Clean up dual subtitle manager
+        if (dualSubtitleManager != null) {
+            dualSubtitleManager.destroy();
+            dualSubtitleManager = null;
+        }
+
         releasePlayer();
     }
 
@@ -619,6 +667,12 @@ public class VideoManager {
             @Override
             public void run() {
                 if (mPlaybackControllerNotifiable != null) mPlaybackControllerNotifiable.onProgress();
+
+                // Update dual subtitles with current position
+                if (dualSubtitleManager != null) {
+                    dualSubtitleManager.updateSubtitles(getCurrentPosition());
+                }
+
                 mHandler.postDelayed(this, 500);
             }
         };
