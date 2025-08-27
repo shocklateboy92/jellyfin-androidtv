@@ -258,6 +258,10 @@ public class VideoManager {
         return mExoPlayer != null;
     }
 
+    public DualSubtitleManager getDualSubtitleManager() {
+        return dualSubtitleManager;
+    }
+
     public @NonNull ZoomMode getZoomMode() {
         return mZoomMode;
     }
