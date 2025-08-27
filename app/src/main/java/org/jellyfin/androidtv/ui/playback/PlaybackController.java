@@ -171,6 +171,10 @@ public class PlaybackController implements PlaybackControllerNotifiable {
         return mVideoManager != null && mVideoManager.isInitialized();
     }
 
+    public VideoManager getVideoManager() {
+        return mVideoManager;
+    }
+
     public org.jellyfin.sdk.model.api.MediaSourceInfo getCurrentMediaSource() {
         if (mCurrentStreamInfo != null && mCurrentStreamInfo.getMediaSource() != null) {
             return mCurrentStreamInfo.getMediaSource();
