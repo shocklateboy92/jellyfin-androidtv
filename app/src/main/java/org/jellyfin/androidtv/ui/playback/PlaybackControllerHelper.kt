@@ -3,6 +3,7 @@ package org.jellyfin.androidtv.ui.playback
 import androidx.annotation.OptIn
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.C
+import androidx.media3.common.TrackGroup
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.util.UnstableApi
 import kotlinx.coroutines.Dispatchers
@@ -97,50 +98,22 @@ fun PlaybackController.setSubtitleIndex(index: Int, force: Boolean = false) {
 			SubtitleDeliveryMethod.EXTERNAL,
 			SubtitleDeliveryMethod.EMBED,
 			SubtitleDeliveryMethod.HLS -> {
-				// External subtitles need to be resolved differently
-				val group = if (stream.deliveryMethod == SubtitleDeliveryMethod.EXTERNAL) {
-					mVideoManager.mExoPlayer.currentTracks.groups.firstOrNull { group ->
-						// Verify this is a group with a single format (the subtitles) that is added by us. Because ExoPlayer uses a
-						// MergingMediaSource, each external subtitle format id is prefixed with its source index (normally starting at 1,
-						// increasing for each external subttitle). So we only check the end of the id
-						group.length == 1 && group.getTrackFormat(0).id?.endsWith(":JF_EXTERNAL:$index") == true
-					}
-				} else {
-					// The server does not send a reliable index in all cases, so calculate it manually
-					val localIndex = mediaSource.mediaStreams.orEmpty()
-						.filter { it.type == MediaStreamType.SUBTITLE }
-						.filter { it.deliveryMethod == SubtitleDeliveryMethod.EMBED || it.deliveryMethod == SubtitleDeliveryMethod.HLS }
-						.indexOf(stream)
-						.takeIf { it != -1 }
-
-					if (localIndex == null) {
-						Timber.w("Failed to find local subtitle index")
-						return setSubtitleIndex(-1)
-					}
-
-					mVideoManager.mExoPlayer.currentTracks.groups
-						.filter { it.type == C.TRACK_TYPE_TEXT }
-						.filterNot { it.length == 1 && it.getTrackFormat(0).id?.endsWith(":JF_EXTERNAL:$index") == true }
-						.getOrNull(localIndex)
-				}?.mediaTrackGroup
-
+				mCurrentOptions.subtitleStreamIndex = index
+				val group = applyNonBurningSubtitleTrack(stream, index)
 				if (group == null) {
 					Timber.w("Failed to find correct subtitle group for method ${stream.deliveryMethod}")
 					return setSubtitleIndex(-1)
 				}
 
 				Timber.i("Enabling subtitle group $index via method ${stream.deliveryMethod}")
-				mCurrentOptions.subtitleStreamIndex = index
 				with(mVideoManager.mExoPlayer.trackSelector!!) {
 					parameters = parameters.buildUpon()
-						.clearOverridesOfType(C.TRACK_TYPE_TEXT)
 						.addOverride(TrackSelectionOverride(group, 0))
+						.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+						.addOverride(TrackSelectionOverride(mVideoManager.mExoPlayer.currentTracks.groups.first().mediaTrackGroup, 0))
 						.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
 						.build()
 				}
-				
-				// Sync dual subtitle routing with new backend
-				syncDualSubtitleRouting()
 			}
 
 			SubtitleDeliveryMethod.DROP, null -> {
@@ -148,6 +121,50 @@ fun PlaybackController.setSubtitleIndex(index: Int, force: Boolean = false) {
 				setSubtitleIndex(-1)
 			}
 		}
+	}
+}
+
+@OptIn(UnstableApi::class)
+@JvmOverloads
+fun PlaybackController.setSecondarySubtitleIndex(index: Int, force: Boolean = false) {
+	Timber.i("Switching secondary subtitles from index ${mCurrentOptions.secondarySubtitleStreamIndex} to $index")
+
+	// Already using this subtitle index
+	if (mCurrentOptions.secondarySubtitleStreamIndex == index && !force) return
+
+	// Allow disabling in case we somehow get stuck in this state
+	if (burningSubs && index != -1) {
+		Timber.w("Secondary subtitles not supported when burning subs")
+		return
+	}
+
+	// Update the options
+	mCurrentOptions.secondarySubtitleStreamIndex = index
+
+	// Disable secondary subtitles
+	if (index == -1) {
+		Timber.i("Disabling secondary subtitles")
+		mVideoManager.disableSecondarySubtitles()
+		return
+	}
+
+	val stream = currentMediaSource.mediaStreams?.firstOrNull { it.type == MediaStreamType.SUBTITLE && it.index == index }
+	if (stream == null) {
+		Timber.w("Failed to find correct media stream")
+		return setSubtitleIndex(-1)
+	}
+	val group = applyNonBurningSubtitleTrack(stream, index)
+	if (group == null) {
+		Timber.w("Failed to find correct subtitle group for method ${stream.deliveryMethod}")
+		return setSecondarySubtitleIndex(-1)
+	}
+
+	Timber.i("Enabling secondary subtitle group $index via method ${stream.deliveryMethod}")
+	with(mVideoManager.mExoPlayer.trackSelector!!) {
+		parameters = parameters.buildUpon()
+			.addOverride(TrackSelectionOverride(group, 0))
+			.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+			.build()
 	}
 }
 
@@ -206,62 +223,38 @@ private fun PlaybackController.addAskToSkipAction(mediaSegment: MediaSegmentDto)
 		.send()
 }
 
+@OptIn(UnstableApi::class)
+private fun PlaybackController.applyNonBurningSubtitleTrack(stream: org.jellyfin.sdk.model.api.MediaStream, index: Int): TrackGroup? {
+	val mediaSource = currentMediaSource
+	// External subtitles need to be resolved differently
+	val group = if (stream.deliveryMethod == SubtitleDeliveryMethod.EXTERNAL) {
+		mVideoManager.mExoPlayer.currentTracks.groups.firstOrNull { group ->
+			// Verify this is a group with a single format (the subtitles) that is added by us. Because ExoPlayer uses a
+			// MergingMediaSource, each external subtitle format id is prefixed with its source index (normally starting at 1,
+			// increasing for each external subttitle). So we only check the end of the id
+			group.length == 1 && group.getTrackFormat(0).id?.endsWith(":JF_EXTERNAL:$index") == true
+		}
+	} else {
+		// The server does not send a reliable index in all cases, so calculate it manually
+		val localIndex = mediaSource.mediaStreams.orEmpty()
+			.filter { it.type == MediaStreamType.SUBTITLE }
+			.filter { it.deliveryMethod == SubtitleDeliveryMethod.EMBED || it.deliveryMethod == SubtitleDeliveryMethod.HLS }
+			.indexOf(stream)
+			.takeIf { it != -1 }
+
+		if (localIndex == null) {
+			Timber.w("Failed to find local subtitle index")
+			return null
+		}
+
+		mVideoManager.mExoPlayer.currentTracks.groups
+			.filter { it.type == C.TRACK_TYPE_TEXT }
+			.filterNot { it.length == 1 && it.getTrackFormat(0).id?.endsWith(":JF_EXTERNAL:$index") == true }
+			.getOrNull(localIndex)
+	}?.mediaTrackGroup
+
+	return group
+}
+
 val PlaybackController.secondarySubtitleStreamIndex: Int?
 	get() = mCurrentOptions.secondarySubtitleStreamIndex ?: -1
-
-@OptIn(UnstableApi::class)
-@JvmOverloads
-fun PlaybackController.setDualSubtitleIndex(primary: Int? = null, secondary: Int? = null) {
-	if (primary != null) {
-		setSubtitleIndex(primary, false)
-	}
-	if (secondary != null) {
-		setSecondarySubtitleIndex(secondary, false)
-	}
-}
-
-@OptIn(UnstableApi::class)
-@JvmOverloads
-fun PlaybackController.setSecondarySubtitleIndex(index: Int, force: Boolean = false) {
-	Timber.i("Switching secondary subtitles from index ${mCurrentOptions.secondarySubtitleStreamIndex} to $index")
-
-	// Already using this subtitle index
-	if (mCurrentOptions.secondarySubtitleStreamIndex == index && !force) return
-
-	// Update the options
-	mCurrentOptions.secondarySubtitleStreamIndex = index
-
-	// Apply to ExoPlayer backend - connect legacy system to new backend
-	try {
-		val playbackManager = fragment.activity?.let { activity ->
-			// Try to get the playback manager from DI
-			org.koin.java.KoinJavaComponent.getKoin().getOrNull<org.jellyfin.playback.core.PlaybackManager>()
-		}
-		
-		val backend = playbackManager?.backend as? org.jellyfin.playback.media3.exoplayer.ExoPlayerBackend
-		backend?.setSubtitleTracks(
-			primaryTrackId = if (mCurrentOptions.subtitleStreamIndex == -1) null else mCurrentOptions.subtitleStreamIndex?.toString(),
-			secondaryTrackId = if (index == -1) null else index.toString()
-		)
-		Timber.i("Applied dual subtitle routing to ExoPlayerBackend: primary=${mCurrentOptions.subtitleStreamIndex}, secondary=$index")
-	} catch (e: Exception) {
-		Timber.w(e, "Failed to apply dual subtitle routing to backend - running in legacy mode")
-	}
-}
-
-private fun PlaybackController.syncDualSubtitleRouting() {
-	try {
-		val playbackManager = fragment.activity?.let { activity ->
-			org.koin.java.KoinJavaComponent.getKoin().getOrNull<org.jellyfin.playback.core.PlaybackManager>()
-		}
-		
-		val backend = playbackManager?.backend as? org.jellyfin.playback.media3.exoplayer.ExoPlayerBackend
-		backend?.setSubtitleTracks(
-			primaryTrackId = if (mCurrentOptions.subtitleStreamIndex == -1) null else mCurrentOptions.subtitleStreamIndex?.toString(),
-			secondaryTrackId = if (mCurrentOptions.secondarySubtitleStreamIndex == -1) null else mCurrentOptions.secondarySubtitleStreamIndex?.toString()
-		)
-		Timber.d("Synced dual subtitle routing: primary=${mCurrentOptions.subtitleStreamIndex}, secondary=${mCurrentOptions.secondarySubtitleStreamIndex}")
-	} catch (e: Exception) {
-		Timber.d(e, "Backend sync not available - running in legacy mode")
-	}
-}

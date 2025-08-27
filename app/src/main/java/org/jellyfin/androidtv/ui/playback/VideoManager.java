@@ -43,6 +43,11 @@ import androidx.media3.extractor.ts.TsExtractor;
 import androidx.media3.ui.AspectRatioFrameLayout;
 import androidx.media3.ui.CaptionStyleCompat;
 import androidx.media3.ui.PlayerView;
+import androidx.media3.ui.SubtitleView;
+import androidx.media3.common.text.Cue;
+import androidx.media3.datasource.DataSource;
+import androidx.media3.datasource.DefaultHttpDataSource;
+import androidx.media3.extractor.text.SubtitleParser;
 
 import org.jellyfin.androidtv.R;
 import org.jellyfin.androidtv.data.compat.StreamInfo;
@@ -78,6 +83,7 @@ public class VideoManager {
     private PlaybackOverlayFragmentHelper _helper;
     public ExoPlayer mExoPlayer;
     private PlayerView mExoPlayerView;
+    private SubtitleView mSecondarySubtitleView;
     private Handler mHandler = new Handler();
 
     private long mMetaDuration = -1;
@@ -115,6 +121,13 @@ public class VideoManager {
 
         mExoPlayerView = view.findViewById(R.id.exoPlayerView);
         mExoPlayerView.setPlayer(mExoPlayer);
+
+        // Setup secondary subtitle view for top positioning
+        mSecondarySubtitleView = new SubtitleView(mActivity);
+        mSecondarySubtitleView.setLayoutParams(new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+        ));
         int strokeColor = userPreferences.get(UserPreferences.Companion.getSubtitleTextStrokeColor()).intValue();
         int textWeight = userPreferences.get(UserPreferences.Companion.getSubtitlesTextWeight());
         CaptionStyleCompat subtitleStyle = new CaptionStyleCompat(
@@ -128,6 +141,17 @@ public class VideoManager {
         mExoPlayerView.getSubtitleView().setFractionalTextSize(0.0533f * userPreferences.get(UserPreferences.Companion.getSubtitlesTextSize()));
         mExoPlayerView.getSubtitleView().setBottomPaddingFraction(userPreferences.get(UserPreferences.Companion.getSubtitlesOffsetPosition()));
         mExoPlayerView.getSubtitleView().setStyle(subtitleStyle);
+
+        // Configure secondary subtitle view (top positioning)
+        mSecondarySubtitleView.setFractionalTextSize(0.0533f * userPreferences.get(UserPreferences.Companion.getSubtitlesTextSize()));
+        mSecondarySubtitleView.setBottomPaddingFraction(0.85f); // Position at top
+        mSecondarySubtitleView.setStyle(subtitleStyle);
+        mSecondarySubtitleView.setViewType(SubtitleView.VIEW_TYPE_CANVAS);
+
+        // Add secondary subtitle view to the parent container
+        if (view instanceof FrameLayout) {
+            ((FrameLayout) view).addView(mSecondarySubtitleView, 0);
+        }
 
         if (assHandler != null) {
             assHandler.init(mExoPlayer);
@@ -652,6 +676,93 @@ public class VideoManager {
     private void stopProgressLoop() {
         if (progressLoop != null) {
             mHandler.removeCallbacks(progressLoop);
+        }
+    }
+
+    private boolean isTextBasedSubtitle(MediaStream stream) {
+        String codec = stream.getCodec();
+        if (codec == null) return false;
+
+        String codecLower = codec.toLowerCase();
+        return codecLower.contains("srt") ||
+               codecLower.contains("vtt") ||
+               codecLower.contains("ttml") ||
+               codecLower.equals("subrip") ||
+               codecLower.equals("webvtt") ||
+               codecLower.contains("text");
+    }
+
+    public void setSecondarySubtitleTrack(int index, @Nullable List<org.jellyfin.sdk.model.api.MediaStream> allStreams) {
+        if (!isInitialized() || allStreams == null) {
+            Timber.w("Cannot set secondary subtitle track - player not initialized or no streams");
+            return;
+        }
+
+        // Find the subtitle stream
+        MediaStream stream = null;
+        for (MediaStream s : allStreams) {
+            if (s.getType() == MediaStreamType.SUBTITLE && s.getIndex() == index) {
+                stream = s;
+                break;
+            }
+        }
+
+        if (stream == null) {
+            Timber.w("Secondary subtitle stream not found for index: %d", index);
+            disableSecondarySubtitles();
+            return;
+        }
+
+        if (!isTextBasedSubtitle(stream)) {
+            Timber.w("Secondary subtitles only support text-based formats. Stream codec: %s", stream.getCodec());
+            disableSecondarySubtitles();
+            return;
+        }
+
+        Timber.i("Setting secondary subtitle track %d with delivery method %s", index, stream.getDeliveryMethod());
+
+        switch (stream.getDeliveryMethod()) {
+            case EXTERNAL:
+                loadExternalSecondarySubtitle(stream);
+                break;
+            case EMBED:
+            case HLS:
+                Timber.i("Secondary subtitle track selection for embedded/HLS streams not yet fully implemented");
+                break;
+            default:
+                Timber.w("Unsupported delivery method for secondary subtitles: %s", stream.getDeliveryMethod());
+                disableSecondarySubtitles();
+        }
+    }
+
+    private void loadExternalSecondarySubtitle(MediaStream stream) {
+        try {
+            ApiClient api = KoinJavaComponent.get(ApiClient.class);
+            Uri subtitleUri = Uri.parse(api.createUrl(stream.getDeliveryUrl(), Collections.emptyMap(), Collections.emptyMap(), true));
+
+            MediaItem.SubtitleConfiguration subtitleConfig = new MediaItem.SubtitleConfiguration.Builder(subtitleUri)
+                    .setId("JF_SECONDARY:" + stream.getIndex())
+                    .setMimeType(VideoManagerHelperKt.getSubtitleMediaStreamCodec(stream))
+                    .setLanguage(stream.getLanguage())
+                    .setLabel(stream.getDisplayTitle())
+                    .build();
+
+            Timber.i("Loading external secondary subtitle: %s", subtitleUri);
+            // TODO: Implement subtitle parsing and rendering to mSecondarySubtitleView
+            // For now, just log the configuration
+            Timber.d("Secondary subtitle config: uri=%s, mimeType=%s, language=%s",
+                    subtitleConfig.uri, subtitleConfig.mimeType, subtitleConfig.language);
+
+        } catch (Exception e) {
+            Timber.e(e, "Failed to load external secondary subtitle");
+            disableSecondarySubtitles();
+        }
+    }
+
+    public void disableSecondarySubtitles() {
+        if (mSecondarySubtitleView != null) {
+            mSecondarySubtitleView.setCues(Collections.emptyList());
+            Timber.i("Secondary subtitles disabled");
         }
     }
 
