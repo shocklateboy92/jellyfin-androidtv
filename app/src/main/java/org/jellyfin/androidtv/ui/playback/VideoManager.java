@@ -79,6 +79,9 @@ public class VideoManager {
     public ExoPlayer mExoPlayer;
     private PlayerView mExoPlayerView;
     private Handler mHandler = new Handler();
+    
+    // Dual subtitle support
+    private DualSubtitleManager dualSubtitleManager;
 
     private long mMetaDuration = -1;
     private long lastExoPlayerPosition = -1;
@@ -128,6 +131,9 @@ public class VideoManager {
         mExoPlayerView.getSubtitleView().setFractionalTextSize(0.0533f * userPreferences.get(UserPreferences.Companion.getSubtitlesTextSize()));
         mExoPlayerView.getSubtitleView().setBottomPaddingFraction(userPreferences.get(UserPreferences.Companion.getSubtitlesOffsetPosition()));
         mExoPlayerView.getSubtitleView().setStyle(subtitleStyle);
+
+        // Initialize dual subtitle manager
+        dualSubtitleManager = new DualSubtitleManager(activity);
 
         if (assHandler != null) {
             assHandler.init(mExoPlayer);
@@ -314,6 +320,24 @@ public class VideoManager {
         mExoPlayer.setPlayWhenReady(true);
         normalWidth = mExoPlayerView.getLayoutParams().width;
         normalHeight = mExoPlayerView.getLayoutParams().height;
+        
+        // Attach secondary subtitle view when playback starts
+        if (dualSubtitleManager != null && dualSubtitleManager.isEnabled()) {
+            FrameLayout playerContainer = (FrameLayout) mExoPlayerView.getParent();
+            if (playerContainer != null) {
+                int strokeColor = userPreferences.get(UserPreferences.Companion.getSubtitleTextStrokeColor()).intValue();
+                int textWeight = userPreferences.get(UserPreferences.Companion.getSubtitlesTextWeight());
+                CaptionStyleCompat subtitleStyle = new CaptionStyleCompat(
+                        userPreferences.get(UserPreferences.Companion.getSubtitlesTextColor()).intValue(),
+                        userPreferences.get(UserPreferences.Companion.getSubtitlesBackgroundColor()).intValue(),
+                        Color.TRANSPARENT,
+                        Color.alpha(strokeColor) == 0 ? CaptionStyleCompat.EDGE_TYPE_NONE : CaptionStyleCompat.EDGE_TYPE_OUTLINE,
+                        strokeColor,
+                        TypefaceCompat.create(mActivity, Typeface.DEFAULT, textWeight, false)
+                );
+                dualSubtitleManager.attachSecondarySubtitleView(playerContainer, subtitleStyle);
+            }
+        }
     }
 
     public void play() {
@@ -397,6 +421,11 @@ public class VideoManager {
 
             mExoPlayer.setMediaItem(mediaItem);
             mExoPlayer.prepare();
+            
+            // Initialize dual subtitles with stream information
+            if (dualSubtitleManager != null) {
+                dualSubtitleManager.initialize(api, streamInfo);
+            }
         } catch (IllegalStateException e) {
             Timber.e(e, "Unable to set video path.  Probably backing out.");
         }
@@ -584,6 +613,13 @@ public class VideoManager {
     public void destroy() {
         mPlaybackControllerNotifiable = null;
         stopPlayback();
+        
+        // Clean up dual subtitle manager
+        if (dualSubtitleManager != null) {
+            dualSubtitleManager.destroy();
+            dualSubtitleManager = null;
+        }
+        
         releasePlayer();
     }
 
@@ -643,6 +679,12 @@ public class VideoManager {
             @Override
             public void run() {
                 if (mPlaybackControllerNotifiable != null) mPlaybackControllerNotifiable.onProgress();
+                
+                // Update dual subtitles with current position
+                if (dualSubtitleManager != null && dualSubtitleManager.isEnabled()) {
+                    dualSubtitleManager.updateSubtitles(getCurrentPosition());
+                }
+                
                 mHandler.postDelayed(this, 500);
             }
         };
