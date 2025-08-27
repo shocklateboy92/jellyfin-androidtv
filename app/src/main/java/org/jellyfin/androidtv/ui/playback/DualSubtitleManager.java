@@ -50,10 +50,11 @@ public class DualSubtitleManager {
     private final OkHttpClient httpClient;
 
     private SubtitleView secondarySubtitleView;
-    private MediaStream firstSubtitleTrack;
+    private MediaStream selectedSubtitleTrack;
     private ApiClient apiClient;
     private StreamInfo streamInfo;
-    private boolean isEnabled = true; // Hardcoded to true as requested
+    private int selectedTrackId = 0; // Default to first track (0), -1 means disabled
+    private List<MediaStream> availableSubtitleTracks = new ArrayList<>();
 
     private final List<TimedCueGroup> currentTimedCueGroups = new ArrayList<>();
 
@@ -85,17 +86,15 @@ public class DualSubtitleManager {
         this.apiClient = api;
         this.streamInfo = streamInfo;
 
-        if (!isEnabled) return;
+        // Collect all available subtitle tracks
+        collectAvailableSubtitleTracks();
 
-        // Find the first subtitle track
-        findFirstSubtitleTrack();
+        if (!availableSubtitleTracks.isEmpty()) {
+            // Set the selected track based on selectedTrackId
+            updateSelectedTrack();
 
-        if (firstSubtitleTrack != null) {
-            Timber.d("DualSubtitleManager: Found first subtitle track - %s (%s)",
-                firstSubtitleTrack.getDisplayTitle(), firstSubtitleTrack.getCodec());
-
-            // Start fetching and parsing subtitle content
-            fetchAndParseSubtitleContent();
+            Timber.d("DualSubtitleManager: Found %d subtitle tracks, selected track ID: %d",
+                availableSubtitleTracks.size(), selectedTrackId);
         } else {
             Timber.d("DualSubtitleManager: No subtitle tracks found");
         }
@@ -105,7 +104,7 @@ public class DualSubtitleManager {
      * Create and attach the secondary subtitle view to the player container
      */
     public void attachSecondarySubtitleView(@NonNull FrameLayout playerContainer, @NonNull CaptionStyleCompat style) {
-        if (!isEnabled || firstSubtitleTrack == null) return;
+        if (selectedTrackId == -1 || selectedSubtitleTrack == null) return;
 
         if (secondarySubtitleView == null) {
             secondarySubtitleView = new SubtitleView(context);
@@ -136,7 +135,7 @@ public class DualSubtitleManager {
      * Update subtitle display based on current playback position
      */
     public void updateSubtitles(long positionMs) {
-        if (!isEnabled || secondarySubtitleView == null || currentTimedCueGroups.isEmpty()) return;
+        if (selectedTrackId == -1 || secondarySubtitleView == null || currentTimedCueGroups.isEmpty()) return;
 
         // Convert position to microseconds for comparison
         long positionUs = positionMs * 1000;
@@ -173,27 +172,91 @@ public class DualSubtitleManager {
         Timber.d("DualSubtitleManager: Destroyed");
     }
 
-    private void findFirstSubtitleTrack() {
+    /**
+     * Set which subtitle track to display on secondary view
+     * @param trackId The index of the subtitle track to display, or -1 to disable
+     */
+    public void setSelectedTrack(int trackId) {
+        if (this.selectedTrackId == trackId) return; // No change needed
+        
+        this.selectedTrackId = trackId;
+        
+        // Clear current subtitle content
+        currentTimedCueGroups.clear();
+        
+        if (secondarySubtitleView != null) {
+            mainHandler.post(() -> {
+                if (secondarySubtitleView != null) {
+                    secondarySubtitleView.setCues(new ArrayList<>());
+                }
+            });
+        }
+        
+        // Update selected track and fetch new content
+        updateSelectedTrack();
+        
+        Timber.d("DualSubtitleManager: Selected track changed to ID: %d", trackId);
+    }
+    
+    /**
+     * Get the currently selected subtitle track ID
+     * @return The selected track ID, or -1 if disabled
+     */
+    public int getSelectedTrack() {
+        return selectedTrackId;
+    }
+    
+    /**
+     * Get list of available subtitle tracks
+     * @return List of available subtitle tracks
+     */
+    public List<MediaStream> getAvailableSubtitleTracks() {
+        return new ArrayList<>(availableSubtitleTracks);
+    }
+    
+    private void collectAvailableSubtitleTracks() {
+        availableSubtitleTracks.clear();
+        
         if (streamInfo == null) return;
-
+        
         for (MediaStream stream : streamInfo.getMediaSource().getMediaStreams()) {
             if (stream.getType() == MediaStreamType.SUBTITLE) {
-                firstSubtitleTrack = stream;
-                Timber.d("DualSubtitleManager: Selected first subtitle track - Index: %d, Title: %s, Language: %s, External: %s",
+                availableSubtitleTracks.add(stream);
+                Timber.d("DualSubtitleManager: Found subtitle track - Index: %d, Title: %s, Language: %s, External: %s", 
                     stream.getIndex(), stream.getTitle(), stream.getLanguage(), stream.isExternal());
-                return;
             }
+        }
+    }
+    
+    private void updateSelectedTrack() {
+        selectedSubtitleTrack = null;
+        
+        if (selectedTrackId == -1 || availableSubtitleTracks.isEmpty()) {
+            return; // Disabled or no tracks available
+        }
+        
+        // Find track by ID (using list index for now)
+        if (selectedTrackId >= 0 && selectedTrackId < availableSubtitleTracks.size()) {
+            selectedSubtitleTrack = availableSubtitleTracks.get(selectedTrackId);
+            
+            Timber.d("DualSubtitleManager: Selected track - Index: %d, Title: %s, Language: %s", 
+                selectedSubtitleTrack.getIndex(), selectedSubtitleTrack.getTitle(), selectedSubtitleTrack.getLanguage());
+            
+            // Start fetching and parsing subtitle content for the selected track
+            fetchAndParseSubtitleContent();
+        } else {
+            Timber.w("DualSubtitleManager: Invalid track ID: %d, available tracks: %d", selectedTrackId, availableSubtitleTracks.size());
         }
     }
 
     private void fetchAndParseSubtitleContent() {
-        if (apiClient == null || streamInfo == null || firstSubtitleTrack == null) return;
+        if (apiClient == null || streamInfo == null || selectedSubtitleTrack == null) return;
 
         backgroundExecutor.execute(() -> {
             try {
                 String subtitleContent;
 
-                if (firstSubtitleTrack.getDeliveryMethod() == SubtitleDeliveryMethod.EXTERNAL) {
+                if (selectedSubtitleTrack.getDeliveryMethod() == SubtitleDeliveryMethod.EXTERNAL) {
                     // Fetch external subtitle file
                     subtitleContent = fetchExternalSubtitle();
                 } else {
@@ -215,10 +278,10 @@ public class DualSubtitleManager {
 
     @Nullable
     private String fetchExternalSubtitle() {
-        if (firstSubtitleTrack.getDeliveryUrl() == null) return null;
+        if (selectedSubtitleTrack.getDeliveryUrl() == null) return null;
 
         try {
-            String url = apiClient.createUrl(firstSubtitleTrack.getDeliveryUrl(),
+            String url = apiClient.createUrl(selectedSubtitleTrack.getDeliveryUrl(),
                 java.util.Collections.emptyMap(), java.util.Collections.emptyMap(), true);
 
             Request request = new Request.Builder()
@@ -246,7 +309,7 @@ public class DualSubtitleManager {
                 apiClient.getBaseUrl(),
                 streamInfo.getItemId(),
                 streamInfo.getMediaSourceId(),
-                firstSubtitleTrack.getIndex());
+                selectedSubtitleTrack.getIndex());
 
             Request request = new Request.Builder()
                 .url(subtitleUrl)
@@ -268,7 +331,7 @@ public class DualSubtitleManager {
     private void parseSubtitleContent(@NonNull String content) {
         try {
             // Determine parser based on subtitle format
-            String codec = firstSubtitleTrack.getCodec();
+            String codec = selectedSubtitleTrack.getCodec();
             if (codec == null) codec = "srt"; // Default to SRT
 
             SubtitleParser parser = createParserForCodec(codec.toLowerCase());
@@ -319,7 +382,7 @@ public class DualSubtitleManager {
     }
 
     public boolean isEnabled() {
-        return isEnabled && firstSubtitleTrack != null;
+        return selectedTrackId != -1 && selectedSubtitleTrack != null;
     }
 
 }
