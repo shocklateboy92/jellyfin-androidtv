@@ -53,7 +53,7 @@ public class DualSubtitleManager {
     private MediaStream selectedSubtitleTrack;
     private ApiClient apiClient;
     private StreamInfo streamInfo;
-    private int selectedTrackId = 0; // Default to first track (0), -1 means disabled
+    private int selectedTrackId = -1; // -1 means disabled
     private List<MediaStream> availableSubtitleTracks = new ArrayList<>();
 
     private final List<TimedCueGroup> currentTimedCueGroups = new ArrayList<>();

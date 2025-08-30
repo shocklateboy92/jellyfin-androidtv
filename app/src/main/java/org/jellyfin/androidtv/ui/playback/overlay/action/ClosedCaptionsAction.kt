@@ -22,7 +22,6 @@ class ClosedCaptionsAction(
 	customPlaybackTransportControlGlue: CustomPlaybackTransportControlGlue,
 ) : CustomAction(context, customPlaybackTransportControlGlue) {
 	private var popup: PopupMenu? = null
-	private var isSecondaryMode = false
 
 	init {
 		initializeWithIcon(R.drawable.ic_select_subtitle)
@@ -33,6 +32,16 @@ class ClosedCaptionsAction(
 		videoPlayerAdapter: VideoPlayerAdapter,
 		context: Context,
 		view: View,
+	) {
+		showSubtitleMenu(playbackController, videoPlayerAdapter, context, view, isSecondaryMode = false)
+	}
+
+	private fun showSubtitleMenu(
+		playbackController: PlaybackController,
+		videoPlayerAdapter: VideoPlayerAdapter,
+		context: Context,
+		view: View,
+		isSecondaryMode: Boolean,
 	) {
 		if (playbackController.currentStreamInfo == null) {
 			Timber.w("StreamInfo null trying to obtain subtitles")
@@ -50,10 +59,12 @@ class ClosedCaptionsAction(
 					setForceShowIcon(true)
 				}
 
-				// Add static entry to toggle between primary/secondary mode
-				add(1, MODE_TOGGLE_ITEM_ID, order++, if (isSecondaryMode) "Select primary subtitles" else "Select secondary subtitles").apply {
-					isEnabled = true
-					icon = ContextCompat.getDrawable(context, R.drawable.ic_select_subtitle)
+				// Add option to switch to secondary mode (only when in primary mode)
+				if (!isSecondaryMode) {
+					add(1, MODE_TOGGLE_ITEM_ID, order++, context.getString(R.string.lbl_select_secondary_subtitles)).apply {
+						isEnabled = true
+						icon = ContextCompat.getDrawable(context, R.drawable.ic_select_subtitle)
+					}
 				}
 
 				if (isSecondaryMode) {
@@ -97,11 +108,9 @@ class ClosedCaptionsAction(
 			setOnMenuItemClickListener { item ->
 				when (item.itemId) {
 					MODE_TOGGLE_ITEM_ID -> {
-						// Toggle mode
-						isSecondaryMode = !isSecondaryMode
-						// Reopen the popup in the new mode
+						// Switch to secondary mode
 						removePopup()
-						handleClickAction(playbackController, videoPlayerAdapter, context, view)
+						showSubtitleMenu(playbackController, videoPlayerAdapter, context, view, isSecondaryMode = true)
 					}
 					else -> {
 						if (isSecondaryMode) {
