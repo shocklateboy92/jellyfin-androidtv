@@ -1,10 +1,12 @@
 package org.jellyfin.androidtv.ui.playback.overlay.action
 
 import android.content.Context
+import android.os.Build
 import android.view.Gravity
 import android.view.View
 import android.widget.PopupMenu
 import android.widget.Toast
+import androidx.core.content.ContextCompat
 import org.jellyfin.androidtv.R
 import org.jellyfin.androidtv.ui.playback.PlaybackController
 import org.jellyfin.androidtv.ui.playback.overlay.CustomPlaybackTransportControlGlue
@@ -12,6 +14,8 @@ import org.jellyfin.androidtv.ui.playback.overlay.VideoPlayerAdapter
 import org.jellyfin.androidtv.ui.playback.setSubtitleIndex
 import org.jellyfin.sdk.model.api.MediaStreamType
 import timber.log.Timber
+
+private const val MODE_TOGGLE_ITEM_ID = -999
 
 class ClosedCaptionsAction(
 	context: Context,
@@ -32,7 +36,7 @@ class ClosedCaptionsAction(
 	) {
 		if (playbackController.currentStreamInfo == null) {
 			Timber.w("StreamInfo null trying to obtain subtitles")
-			Toast.makeText(context, "Unable to obtain subtitle info", Toast.LENGTH_LONG).show()
+			Toast.makeText(context, R.string.msg_unable_load_subs, Toast.LENGTH_LONG).show()
 			return
 		}
 
@@ -42,14 +46,14 @@ class ClosedCaptionsAction(
 			with(menu) {
 				var order = 0
 
-				// Add static entry to toggle between primary/secondary mode
-				add(1, -999, order++, if (isSecondaryMode) "Select primary subtitles" else "Select secondary subtitles").apply {
-					isEnabled = true
+				if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+					setForceShowIcon(true)
 				}
 
-				// Add separator
-				add(1, -998, order++, "────────────────").apply {
-					isEnabled = false
+				// Add static entry to toggle between primary/secondary mode
+				add(1, MODE_TOGGLE_ITEM_ID, order++, if (isSecondaryMode) "Select primary subtitles" else "Select secondary subtitles").apply {
+					isEnabled = true
+					icon = ContextCompat.getDrawable(context, R.drawable.ic_select_subtitle)
 				}
 
 				if (isSecondaryMode) {
@@ -92,15 +96,12 @@ class ClosedCaptionsAction(
 			}
 			setOnMenuItemClickListener { item ->
 				when (item.itemId) {
-					-999 -> {
+					MODE_TOGGLE_ITEM_ID -> {
 						// Toggle mode
 						isSecondaryMode = !isSecondaryMode
 						// Reopen the popup in the new mode
 						removePopup()
 						handleClickAction(playbackController, videoPlayerAdapter, context, view)
-					}
-					-998 -> {
-						// Separator - do nothing
 					}
 					else -> {
 						if (isSecondaryMode) {
