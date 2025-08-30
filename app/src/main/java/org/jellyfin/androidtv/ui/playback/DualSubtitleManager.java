@@ -22,13 +22,13 @@ import org.jellyfin.sdk.api.client.ApiClient;
 // Removed unused import - using direct HTTP calls instead
 import org.jellyfin.sdk.model.api.MediaStream;
 import org.jellyfin.sdk.model.api.MediaStreamType;
-import org.jellyfin.sdk.model.api.SubtitleDeliveryMethod;
 import org.koin.java.KoinJavaComponent;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -94,7 +94,7 @@ public class DualSubtitleManager {
             updateSelectedTrack();
 
             Timber.d("DualSubtitleManager: Found %d subtitle tracks, selected track ID: %d",
-                availableSubtitleTracks.size(), selectedTrackId);
+                    availableSubtitleTracks.size(), selectedTrackId);
         } else {
             Timber.d("DualSubtitleManager: No subtitle tracks found");
         }
@@ -123,8 +123,8 @@ public class DualSubtitleManager {
 
         // Add to new container
         FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT,
-            FrameLayout.LayoutParams.MATCH_PARENT
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
         );
         playerContainer.addView(secondarySubtitleView, params);
 
@@ -174,16 +174,17 @@ public class DualSubtitleManager {
 
     /**
      * Set which subtitle track to display on secondary view
+     *
      * @param trackId The index of the subtitle track to display, or -1 to disable
      */
     public void setSelectedTrack(int trackId) {
         if (this.selectedTrackId == trackId) return; // No change needed
-        
+
         this.selectedTrackId = trackId;
-        
+
         // Clear current subtitle content
         currentTimedCueGroups.clear();
-        
+
         if (secondarySubtitleView != null) {
             mainHandler.post(() -> {
                 if (secondarySubtitleView != null) {
@@ -191,57 +192,59 @@ public class DualSubtitleManager {
                 }
             });
         }
-        
+
         // Update selected track and fetch new content
         updateSelectedTrack();
-        
+
         Timber.d("DualSubtitleManager: Selected track changed to ID: %d", trackId);
     }
-    
+
     /**
      * Get the currently selected subtitle track ID
+     *
      * @return The selected track ID, or -1 if disabled
      */
     public int getSelectedTrack() {
         return selectedTrackId;
     }
-    
+
     /**
      * Get list of available subtitle tracks
+     *
      * @return List of available subtitle tracks
      */
     public List<MediaStream> getAvailableSubtitleTracks() {
         return new ArrayList<>(availableSubtitleTracks);
     }
-    
+
     private void collectAvailableSubtitleTracks() {
         availableSubtitleTracks.clear();
-        
+
         if (streamInfo == null) return;
-        
+
         for (MediaStream stream : streamInfo.getMediaSource().getMediaStreams()) {
             if (stream.getType() == MediaStreamType.SUBTITLE) {
                 availableSubtitleTracks.add(stream);
-                Timber.d("DualSubtitleManager: Found subtitle track - Index: %d, Title: %s, Language: %s, External: %s", 
-                    stream.getIndex(), stream.getTitle(), stream.getLanguage(), stream.isExternal());
+                Timber.d("DualSubtitleManager: Found subtitle track - Index: %d, Title: %s, Language: %s, External: %s",
+                        stream.getIndex(), stream.getTitle(), stream.getLanguage(), stream.isExternal());
             }
         }
     }
-    
+
     private void updateSelectedTrack() {
         selectedSubtitleTrack = null;
-        
+
         if (selectedTrackId == -1 || availableSubtitleTracks.isEmpty()) {
             return; // Disabled or no tracks available
         }
-        
+
         // Find track by ID (using list index for now)
         if (selectedTrackId >= 0 && selectedTrackId < availableSubtitleTracks.size()) {
             selectedSubtitleTrack = availableSubtitleTracks.get(selectedTrackId);
-            
-            Timber.d("DualSubtitleManager: Selected track - Index: %d, Title: %s, Language: %s", 
-                selectedSubtitleTrack.getIndex(), selectedSubtitleTrack.getTitle(), selectedSubtitleTrack.getLanguage());
-            
+
+            Timber.d("DualSubtitleManager: Selected track - Index: %d, Title: %s, Language: %s",
+                    selectedSubtitleTrack.getIndex(), selectedSubtitleTrack.getTitle(), selectedSubtitleTrack.getLanguage());
+
             // Start fetching and parsing subtitle content for the selected track
             fetchAndParseSubtitleContent();
         } else {
@@ -254,15 +257,7 @@ public class DualSubtitleManager {
 
         backgroundExecutor.execute(() -> {
             try {
-                String subtitleContent;
-
-                if (selectedSubtitleTrack.getDeliveryMethod() == SubtitleDeliveryMethod.EXTERNAL) {
-                    // Fetch external subtitle file
-                    subtitleContent = fetchExternalSubtitle();
-                } else {
-                    // Fetch embedded subtitle via Jellyfin API
-                    subtitleContent = fetchEmbeddedSubtitle();
-                }
+                String subtitleContent = fetchSubtitle();
 
                 if (subtitleContent != null && !subtitleContent.isEmpty()) {
                     parseSubtitleContent(subtitleContent);
@@ -277,16 +272,25 @@ public class DualSubtitleManager {
     }
 
     @Nullable
-    private String fetchExternalSubtitle() {
-        if (selectedSubtitleTrack.getDeliveryUrl() == null) return null;
-
+    private String fetchSubtitle() {
         try {
-            String url = apiClient.createUrl(selectedSubtitleTrack.getDeliveryUrl(),
-                java.util.Collections.emptyMap(), java.util.Collections.emptyMap(), true);
+            String url = selectedSubtitleTrack.getDeliveryUrl() != null
+                    ? apiClient.createUrl(
+                            selectedSubtitleTrack.getDeliveryUrl(),
+                            java.util.Collections.emptyMap(),
+                            java.util.Collections.emptyMap(),
+                    true)
+                    : apiClient.createUrl(
+                            "Videos/{itemId}/{mediaSourceId}/Subtitles/{index}/Stream.srt",
+                            Map.of("itemId", streamInfo.getItemId(),
+                                    "mediaSourceId", streamInfo.getMediaSourceId(),
+                                    "index", selectedSubtitleTrack.getIndex()),
+                            java.util.Collections.emptyMap(),
+                            false);
 
             Request request = new Request.Builder()
-                .url(url)
-                .build();
+                    .url(url)
+                    .build();
 
             try (Response response = httpClient.newCall(request).execute()) {
                 if (response.isSuccessful() && response.body() != null) {
@@ -294,35 +298,7 @@ public class DualSubtitleManager {
                 }
             }
         } catch (IOException e) {
-            Timber.e(e, "DualSubtitleManager: Failed to fetch external subtitle");
-        }
-
-        return null;
-    }
-
-    @Nullable
-    private String fetchEmbeddedSubtitle() {
-        try {
-            // Use Jellyfin's subtitle API to get embedded subtitle content
-            // This requires making an HTTP call to the Jellyfin server
-            String subtitleUrl = String.format("%s/Videos/%s/%s/Subtitles/%d/Stream.srt",
-                apiClient.getBaseUrl(),
-                streamInfo.getItemId(),
-                streamInfo.getMediaSourceId(),
-                selectedSubtitleTrack.getIndex());
-
-            Request request = new Request.Builder()
-                .url(subtitleUrl)
-                .addHeader("Authorization", "MediaBrowser Token=" + apiClient.getAccessToken())
-                .build();
-
-            try (Response response = httpClient.newCall(request).execute()) {
-                if (response.isSuccessful() && response.body() != null) {
-                    return response.body().string();
-                }
-            }
-        } catch (IOException e) {
-            Timber.e(e, "DualSubtitleManager: Failed to fetch embedded subtitle");
+            Timber.e(e, "DualSubtitleManager: Failed to fetch subtitle");
         }
 
         return null;
@@ -348,13 +324,13 @@ public class DualSubtitleManager {
             currentTimedCueGroups.clear();
             parser.parse(contentBytes, outputOptions, cuesWithTiming -> {
                 TimedCueGroup timedCueGroup = new TimedCueGroup(
-                    cuesWithTiming.startTimeUs,
-                    cuesWithTiming.endTimeUs,
-                    cuesWithTiming.cues
+                        cuesWithTiming.startTimeUs,
+                        cuesWithTiming.endTimeUs,
+                        cuesWithTiming.cues
                 );
                 currentTimedCueGroups.add(timedCueGroup);
                 Timber.d("DualSubtitleManager: Parsed subtitle segment with %d cues at %d-%d us",
-                    cuesWithTiming.cues.size(), cuesWithTiming.startTimeUs, cuesWithTiming.endTimeUs);
+                        cuesWithTiming.cues.size(), cuesWithTiming.startTimeUs, cuesWithTiming.endTimeUs);
             });
 
             // Log total parsed segments
