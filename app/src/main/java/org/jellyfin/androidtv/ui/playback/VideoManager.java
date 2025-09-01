@@ -79,7 +79,7 @@ public class VideoManager {
     public ExoPlayer mExoPlayer;
     private PlayerView mExoPlayerView;
     private Handler mHandler = new Handler();
-    
+
     // Dual subtitle support
     private DualSubtitleManager dualSubtitleManager;
 
@@ -324,9 +324,9 @@ public class VideoManager {
         mExoPlayer.setPlayWhenReady(true);
         normalWidth = mExoPlayerView.getLayoutParams().width;
         normalHeight = mExoPlayerView.getLayoutParams().height;
-        
+
         // Attach secondary subtitle view when playback starts
-        if (dualSubtitleManager != null && dualSubtitleManager.isEnabled()) {
+        if (dualSubtitleManager != null) {
             FrameLayout playerContainer = (FrameLayout) mExoPlayerView.getParent();
             if (playerContainer != null) {
                 int strokeColor = userPreferences.get(UserPreferences.Companion.getSubtitleTextStrokeColor()).intValue();
@@ -425,7 +425,7 @@ public class VideoManager {
 
             mExoPlayer.setMediaItem(mediaItem);
             mExoPlayer.prepare();
-            
+
             // Initialize dual subtitles with stream information
             if (dualSubtitleManager != null) {
                 dualSubtitleManager.initialize(api, streamInfo);
@@ -617,13 +617,13 @@ public class VideoManager {
     public void destroy() {
         mPlaybackControllerNotifiable = null;
         stopPlayback();
-        
+
         // Clean up dual subtitle manager
         if (dualSubtitleManager != null) {
             dualSubtitleManager.destroy();
             dualSubtitleManager = null;
         }
-        
+
         releasePlayer();
     }
 
@@ -683,12 +683,12 @@ public class VideoManager {
             @Override
             public void run() {
                 if (mPlaybackControllerNotifiable != null) mPlaybackControllerNotifiable.onProgress();
-                
+
                 // Update dual subtitles with current position
-                if (dualSubtitleManager != null && dualSubtitleManager.isEnabled()) {
+                if (dualSubtitleManager != null) {
                     dualSubtitleManager.updateSubtitles(getCurrentPosition());
                 }
-                
+
                 mHandler.postDelayed(this, 500);
             }
         };

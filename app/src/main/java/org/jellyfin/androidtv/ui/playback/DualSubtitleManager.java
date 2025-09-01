@@ -104,8 +104,6 @@ public class DualSubtitleManager {
      * Create and attach the secondary subtitle view to the player container
      */
     public void attachSecondarySubtitleView(@NonNull FrameLayout playerContainer, @NonNull CaptionStyleCompat style) {
-        if (selectedTrackId == -1 || selectedSubtitleTrack == null) return;
-
         if (secondarySubtitleView == null) {
             secondarySubtitleView = new SubtitleView(context);
             float fractionalTextSize = 0.0533f * userPreferences.get(UserPreferences.Companion.getSubtitlesTextSize());
@@ -356,9 +354,4 @@ public class DualSubtitleManager {
                 return new SubripParser();
         }
     }
-
-    public boolean isEnabled() {
-        return selectedTrackId != -1 && selectedSubtitleTrack != null;
-    }
-
 }
