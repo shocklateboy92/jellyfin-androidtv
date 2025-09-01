@@ -108,10 +108,9 @@ public class DualSubtitleManager {
             secondarySubtitleView = new SubtitleView(context);
             float fractionalTextSize = 0.0533f * userPreferences.get(UserPreferences.Companion.getSubtitlesTextSize());
             secondarySubtitleView.setFractionalTextSize(fractionalTextSize);
-            // Position secondary subtitles above primary ones
-            secondarySubtitleView.setBottomPaddingFraction(1.0f - userPreferences.get(UserPreferences.Companion.getSubtitlesOffsetPosition()) - fractionalTextSize);
+            // Secondary subtitles are positioned via explicit Cue positioning
             secondarySubtitleView.setStyle(style);
-            secondarySubtitleView.setApplyEmbeddedStyles(false);
+            secondarySubtitleView.setApplyEmbeddedStyles(true);
         }
 
         // Remove from previous parent if attached
@@ -321,10 +320,19 @@ public class DualSubtitleManager {
             // Parse with callback to collect cues with timing
             currentTimedCueGroups.clear();
             parser.parse(contentBytes, outputOptions, cuesWithTiming -> {
+                // Create top-positioned cues
+                List<Cue> topPositionedCues = new ArrayList<>();
+                for (Cue originalCue : cuesWithTiming.cues) {
+                    Cue.Builder builder = originalCue.buildUpon();
+                    builder.setLine(userPreferences.get(UserPreferences.Companion.getSubtitlesOffsetPosition()), Cue.LINE_TYPE_FRACTION);  // Position near top (10% from top)
+                    builder.setLineAnchor(Cue.ANCHOR_TYPE_START);   // Anchor to top
+                    topPositionedCues.add(builder.build());
+                }
+
                 TimedCueGroup timedCueGroup = new TimedCueGroup(
                         cuesWithTiming.startTimeUs,
                         cuesWithTiming.endTimeUs,
-                        cuesWithTiming.cues
+                        topPositionedCues
                 );
                 currentTimedCueGroups.add(timedCueGroup);
                 Timber.d("DualSubtitleManager: Parsed subtitle segment with %d cues at %d-%d us",

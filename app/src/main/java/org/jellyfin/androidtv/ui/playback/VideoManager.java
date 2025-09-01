@@ -28,6 +28,7 @@ import androidx.media3.common.TrackGroup;
 import androidx.media3.common.TrackSelectionOverride;
 import androidx.media3.common.TrackSelectionParameters;
 import androidx.media3.common.Tracks;
+import androidx.media3.common.text.CueGroup;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.datasource.DefaultDataSource;
 import androidx.media3.datasource.HttpDataSource;
@@ -190,6 +191,13 @@ public class VideoManager {
             @Override
             public void onTimelineChanged(@NonNull Timeline timeline, int reason) {
                 Timber.d("Caught player timeline change - reason: %s", reason == Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED ? "PLAYLIST_CHANGED" : "SOURCE_UPDATE");
+            }
+
+            @Override
+            public void onCues(CueGroup cueGroup) {
+                if (dualSubtitleManager != null) {
+                    dualSubtitleManager.updateSubtitles(getCurrentPosition());
+                }
             }
 
             @Override
