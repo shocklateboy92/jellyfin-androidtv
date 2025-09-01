@@ -221,10 +221,55 @@ public class DualSubtitleManager {
 
         for (MediaStream stream : streamInfo.getMediaSource().getMediaStreams()) {
             if (stream.getType() == MediaStreamType.SUBTITLE) {
+                if (!isTextBasedSubtitle(stream)) {
+                    Timber.d("DualSubtitleManager: Skipping image-based subtitle track - Index: %d, Title: %s, Language: %s, Codec: %s",
+                            stream.getIndex(), stream.getTitle(), stream.getLanguage(), stream.getCodec());
+                    continue;
+                }
+
                 availableSubtitleTracks.add(stream);
-                Timber.d("DualSubtitleManager: Found subtitle track - Index: %d, Title: %s, Language: %s, External: %s",
-                        stream.getIndex(), stream.getTitle(), stream.getLanguage(), stream.isExternal());
+                Timber.d("DualSubtitleManager: Found text-based subtitle track - Index: %d, Title: %s, Language: %s, Codec: %s, External: %s",
+                        stream.getIndex(), stream.getTitle(), stream.getLanguage(), stream.getCodec(), stream.isExternal());
             }
+        }
+    }
+
+    /**
+     * Check if a subtitle stream is text-based (not image-based)
+     */
+    private boolean isTextBasedSubtitle(@NonNull MediaStream stream) {
+        String codec = stream.getCodec();
+        if (codec == null) return true; // Assume text-based if codec is unknown
+
+        switch (codec.toLowerCase()) {
+            // Image-based subtitle formats
+            case "dvdsub":
+            case "dvd_subtitle":
+            case "vobsub":
+            case "pgssub":
+            case "pgs":
+            case "sup":
+            case "hdmv_pgs_subtitle":
+
+                // Local renderer can't handle these yet
+            case "ass":
+            case "ssa":
+                return false;
+
+            // Text-based subtitle formats
+            case "srt":
+            case "subrip":
+            case "vtt":
+            case "webvtt":
+            case "ttml":
+            case "smi":
+            case "cc_dec":
+            case "text":
+                return true;
+
+            // So we only present the user with options where we can provide a good experience
+            default:
+                return false;
         }
     }
 
@@ -273,17 +318,17 @@ public class DualSubtitleManager {
         try {
             String url = selectedSubtitleTrack.getDeliveryUrl() != null
                     ? apiClient.createUrl(
-                            selectedSubtitleTrack.getDeliveryUrl(),
-                            java.util.Collections.emptyMap(),
-                            java.util.Collections.emptyMap(),
+                    selectedSubtitleTrack.getDeliveryUrl(),
+                    java.util.Collections.emptyMap(),
+                    java.util.Collections.emptyMap(),
                     true)
                     : apiClient.createUrl(
-                            "Videos/{itemId}/{mediaSourceId}/Subtitles/{index}/Stream.srt",
-                            Map.of("itemId", streamInfo.getItemId(),
-                                    "mediaSourceId", streamInfo.getMediaSourceId(),
-                                    "index", selectedSubtitleTrack.getIndex()),
-                            java.util.Collections.emptyMap(),
-                            false);
+                    "Videos/{itemId}/{mediaSourceId}/Subtitles/{index}/Stream.srt",
+                    Map.of("itemId", streamInfo.getItemId(),
+                            "mediaSourceId", streamInfo.getMediaSourceId(),
+                            "index", selectedSubtitleTrack.getIndex()),
+                    java.util.Collections.emptyMap(),
+                    false);
 
             Request request = new Request.Builder()
                     .url(url)
