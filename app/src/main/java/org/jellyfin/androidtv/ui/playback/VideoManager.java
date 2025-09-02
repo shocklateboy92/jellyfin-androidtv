@@ -121,10 +121,6 @@ public class VideoManager {
         // Initialize dual subtitle manager
         dualSubtitleManager = new DualSubtitleManager(activity);
 
-        if (assHandler != null) {
-            assHandler.init(mExoPlayer);
-            mExoPlayerView.getSubtitleView().addView(new AssSubtitleView(mActivity, assHandler));
-        }
         mExoPlayer.addListener(new Player.Listener() {
             @Override
             public void onPlayerError(@NonNull PlaybackException error) {
@@ -317,14 +313,13 @@ public class VideoManager {
             FrameLayout playerContainer = (FrameLayout) mExoPlayerView.getParent();
             if (playerContainer != null) {
                 int strokeColor = userPreferences.get(UserPreferences.Companion.getSubtitleTextStrokeColor()).intValue();
-                int textWeight = userPreferences.get(UserPreferences.Companion.getSubtitlesTextWeight());
                 CaptionStyleCompat subtitleStyle = new CaptionStyleCompat(
                         userPreferences.get(UserPreferences.Companion.getSubtitlesTextColor()).intValue(),
                         userPreferences.get(UserPreferences.Companion.getSubtitlesBackgroundColor()).intValue(),
                         Color.TRANSPARENT,
                         Color.alpha(strokeColor) == 0 ? CaptionStyleCompat.EDGE_TYPE_NONE : CaptionStyleCompat.EDGE_TYPE_OUTLINE,
                         strokeColor,
-                        TypefaceCompat.create(mActivity, Typeface.DEFAULT, textWeight, false)
+                        null
                 );
                 dualSubtitleManager.attachSecondarySubtitleView(playerContainer, subtitleStyle);
             }
