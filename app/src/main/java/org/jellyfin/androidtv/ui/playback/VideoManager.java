@@ -28,6 +28,7 @@ import androidx.media3.common.TrackGroup;
 import androidx.media3.common.TrackSelectionOverride;
 import androidx.media3.common.TrackSelectionParameters;
 import androidx.media3.common.Tracks;
+import androidx.media3.common.text.Cue;
 import androidx.media3.common.text.CueGroup;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.datasource.DefaultDataSource;
@@ -182,6 +183,19 @@ public class VideoManager {
             public void onCues(CueGroup cueGroup) {
                 if (dualSubtitleManager != null) {
                     dualSubtitleManager.updateSubtitles(getCurrentPosition());
+
+                    // When dual subs are active, force primary subs to bottom so
+                    // they don't collide with top-aligned secondary subs.
+                    if (dualSubtitleManager.getSelectedTrack() != -1) {
+                        List<Cue> bottomAlignedCues = new ArrayList<>();
+                        for (Cue cue : cueGroup.cues) {
+                            bottomAlignedCues.add(cue.buildUpon()
+                                    .setLine(Cue.DIMEN_UNSET, Cue.TYPE_UNSET)
+                                    .setLineAnchor(Cue.TYPE_UNSET)
+                                    .build());
+                        }
+                        mExoPlayerView.getSubtitleView().setCues(bottomAlignedCues);
+                    }
                 }
             }
 
