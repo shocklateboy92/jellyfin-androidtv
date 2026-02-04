@@ -4,6 +4,7 @@ import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
 import android.widget.FrameLayout;
+import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -31,6 +32,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -43,6 +45,11 @@ import timber.log.Timber;
  */
 @OptIn(markerClass = UnstableApi.class)
 public class DualSubtitleManager {
+    // Retry configuration matching ExoPlayer's DefaultLoadErrorHandlingPolicy
+    private static final int MAX_RETRY_COUNT = 5;
+    private static final long BASE_RETRY_DELAY_MS = 1000;
+    private static final long MAX_RETRY_DELAY_MS = 5000;
+
     private final Context context;
     private final UserPreferences userPreferences;
     private final Handler mainHandler;
@@ -76,7 +83,12 @@ public class DualSubtitleManager {
         this.userPreferences = KoinJavaComponent.get(UserPreferences.class);
         this.mainHandler = new Handler(Looper.getMainLooper());
         this.backgroundExecutor = Executors.newSingleThreadExecutor();
-        this.httpClient = new OkHttpClient();
+        // Configure HTTP client with longer timeouts for subtitle fetching
+        this.httpClient = new OkHttpClient.Builder()
+                .connectTimeout(30, TimeUnit.SECONDS)
+                .readTimeout(30, TimeUnit.SECONDS)
+                .writeTimeout(30, TimeUnit.SECONDS)
+                .build();
     }
 
     /**
@@ -295,6 +307,10 @@ public class DualSubtitleManager {
     }
 
     private void fetchAndParseSubtitleContent() {
+        fetchAndParseSubtitleContentWithRetry(0);
+    }
+
+    private void fetchAndParseSubtitleContentWithRetry(int attemptNumber) {
         if (apiClient == null || streamInfo == null || selectedSubtitleTrack == null) return;
 
         backgroundExecutor.execute(() -> {
@@ -305,12 +321,39 @@ public class DualSubtitleManager {
                     parseSubtitleContent(subtitleContent);
                 } else {
                     Timber.w("DualSubtitleManager: No subtitle content retrieved");
+                    handleFetchFailure(attemptNumber, null);
                 }
 
             } catch (Exception e) {
-                Timber.e(e, "DualSubtitleManager: Error fetching subtitle content");
+                Timber.e(e, "DualSubtitleManager: Error fetching subtitle content (attempt %d)", attemptNumber + 1);
+                handleFetchFailure(attemptNumber, e);
             }
         });
+    }
+
+    private void handleFetchFailure(int attemptNumber, @Nullable Exception error) {
+        if (attemptNumber < MAX_RETRY_COUNT - 1) {
+            // Calculate retry delay: Math.min((attemptNumber) * 1000, 5000)
+            long retryDelayMs = Math.min(attemptNumber * BASE_RETRY_DELAY_MS, MAX_RETRY_DELAY_MS);
+
+            // Show toast on main thread
+            mainHandler.post(() -> {
+                String message = String.format("Secondary subtitles failed to load, retrying in %ds...", retryDelayMs / 1000);
+                Toast.makeText(context, message, Toast.LENGTH_SHORT).show();
+            });
+
+            Timber.i("DualSubtitleManager: Retrying subtitle fetch in %dms (attempt %d/%d)",
+                    retryDelayMs, attemptNumber + 2, MAX_RETRY_COUNT);
+
+            // Schedule retry
+            mainHandler.postDelayed(() -> fetchAndParseSubtitleContentWithRetry(attemptNumber + 1), retryDelayMs);
+        } else {
+            // All retries exhausted
+            mainHandler.post(() -> {
+                Toast.makeText(context, "Secondary subtitles failed to load", Toast.LENGTH_LONG).show();
+            });
+            Timber.e("DualSubtitleManager: Failed to fetch subtitles after %d attempts", MAX_RETRY_COUNT);
+        }
     }
 
     @Nullable
