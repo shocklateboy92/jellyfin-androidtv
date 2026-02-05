@@ -102,6 +102,9 @@ public class DualSubtitleManager {
         collectAvailableSubtitleTracks();
 
         if (!availableSubtitleTracks.isEmpty()) {
+            // Auto-select Japanese subtitles as secondary if primary isn't Japanese
+            autoSelectDefaultSecondaryTrack();
+
             // Set the selected track based on selectedTrackId
             updateSelectedTrack();
 
@@ -110,6 +113,67 @@ public class DualSubtitleManager {
         } else {
             Timber.d("DualSubtitleManager: No subtitle tracks found");
         }
+    }
+
+    /**
+     * Auto-select Japanese subtitles as secondary track by default,
+     * unless the primary subtitle is already Japanese.
+     */
+    private void autoSelectDefaultSecondaryTrack() {
+        if (streamInfo == null || availableSubtitleTracks.isEmpty()) return;
+
+        // Get the primary subtitle language
+        String primarySubtitleLanguage = getPrimarySubtitleLanguage();
+        Timber.d("DualSubtitleManager: Primary subtitle language: %s", primarySubtitleLanguage);
+
+        // If primary is already Japanese, don't auto-select secondary
+        if (isJapanese(primarySubtitleLanguage)) {
+            Timber.d("DualSubtitleManager: Primary subtitle is Japanese, not auto-selecting secondary");
+            selectedTrackId = -1;
+            return;
+        }
+
+        // Find the first Japanese text-based subtitle track
+        for (int i = 0; i < availableSubtitleTracks.size(); i++) {
+            MediaStream track = availableSubtitleTracks.get(i);
+            if (isJapanese(track.getLanguage())) {
+                selectedTrackId = i;
+                Timber.d("DualSubtitleManager: Auto-selected Japanese subtitle as secondary - Index: %d, Title: %s",
+                        track.getIndex(), track.getTitle());
+                return;
+            }
+        }
+
+        // No Japanese track found, keep disabled
+        Timber.d("DualSubtitleManager: No Japanese subtitle track found for auto-selection");
+        selectedTrackId = -1;
+    }
+
+    /**
+     * Get the language of the primary (default) subtitle track
+     */
+    @Nullable
+    private String getPrimarySubtitleLanguage() {
+        if (streamInfo == null || streamInfo.getMediaSource() == null) return null;
+
+        Integer primaryIndex = streamInfo.getMediaSource().getDefaultSubtitleStreamIndex();
+        if (primaryIndex == null || primaryIndex < 0) return null;
+
+        for (MediaStream stream : streamInfo.getMediaSource().getMediaStreams()) {
+            if (stream.getType() == MediaStreamType.SUBTITLE && stream.getIndex() == primaryIndex) {
+                return stream.getLanguage();
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Check if a language code represents Japanese
+     */
+    private boolean isJapanese(@Nullable String language) {
+        if (language == null) return false;
+        String lang = language.toLowerCase();
+        return lang.equals("ja") || lang.equals("jpn") || lang.equals("japanese");
     }
 
     /**
